@@ -897,8 +897,10 @@ class SquidExperiment3D {
       this.state.squidVy += accelY * dt;
       this.state.squidY += this.state.squidVy * dt;
 
-      // 페트병 바닥(y = 1.02) 및 병목 상단 경계 충돌 처리
-      const bottomLimitY = 1.02;
+      // 페트병 바닥 충돌 처리:
+      // 첫 번째 고정 클립 하단이 y = squidY - 1.37 이므로, 병 바닥 내벽(y = 0.08)에 닿는 한계 높이는 1.45
+      const bottleFloorY = 0.08;
+      const bottomLimitY = 1.45;
       if (this.state.squidY <= bottomLimitY) {
         this.state.squidY = bottomLimitY;
         if (this.state.squidVy < 0) this.state.squidVy = 0;
@@ -910,14 +912,19 @@ class SquidExperiment3D {
       }
 
       // 바닥에 완전히 가라앉아 있을 때는 수면 물결 진동을 멈추고 바닥에 안착
-      const isRestingOnBottom = (this.state.squidY <= bottomLimitY + 0.01) && (netBuoyancyForce <= 0);
+      const isRestingOnBottom = (this.state.squidY <= bottomLimitY + 0.015) && (netBuoyancyForce <= 0);
       const waveBobbing = isRestingOnBottom ? 0 : Math.sin(elapsed * 2.4) * 0.012;
 
-      // 오징어를 페트병 중심(x=1.25, z=0)에 배치
+      // 오징어를 페트병 중심(x=1.25, z=0)에 배치 (바닥 안착 시 자연스럽게 살짝 기울어짐)
       this.squidGroup.position.x = THREE.MathUtils.lerp(this.squidGroup.position.x, 1.25, dt * 7);
       this.squidGroup.position.z = THREE.MathUtils.lerp(this.squidGroup.position.z, 0, dt * 7);
       this.squidGroup.position.y = this.state.squidY + waveBobbing;
       this.squidGroup.rotation.y = Math.sin(elapsed * 1.1) * (isRestingOnBottom ? 0.03 : 0.15);
+      this.squidGroup.rotation.z = THREE.MathUtils.lerp(
+        this.squidGroup.rotation.z,
+        isRestingOnBottom ? 0.12 : 0,
+        dt * 5
+      );
 
       // 빨대 내부에 차오르는 물 기둥과 줄어드는 공기 기둥 시각화
       this.internalWaterLeft.visible = true;
@@ -944,6 +951,7 @@ class SquidExperiment3D {
       this.squidGroup.position.y = THREE.MathUtils.lerp(this.squidGroup.position.y, 2.25, dt * 6);
       this.squidGroup.position.z = THREE.MathUtils.lerp(this.squidGroup.position.z, 0.6, dt * 6);
       this.squidGroup.rotation.y = Math.sin(elapsed * 0.8) * 0.12;
+      this.squidGroup.rotation.z = THREE.MathUtils.lerp(this.squidGroup.rotation.z, 0, dt * 6);
 
       this.internalWaterLeft.visible = false;
       this.internalWaterRight.visible = false;
@@ -953,8 +961,19 @@ class SquidExperiment3D {
       this.state.airVolumeRatio = 1.0;
     }
 
-    // 오징어 다리 클립들의 유체 저항(상승 시 모이고 하강 시 살짝 벌어짐) 및 잔잔한 흔들림
+    // 오징어 다리 클립들의 물리적 바닥 접촉(바닥에 닿으면 뚫고 내려가지 않고 옆/앞뒤로 꺾여 누움) 및 유체 저항
     const count = this.hangingClipsGroup.children.length;
+    const clipLen = 0.66;
+    const bottleFloorY = 0.08;
+    // 다리 클립이 걸려 있는 힌지(연결부)의 월드 Y 좌표
+    const hingeWorldY = this.squidGroup.position.y - 1.32;
+    let floorFoldAngle = 0;
+    if (this.state.isInBottle && hingeWorldY - clipLen < bottleFloorY) {
+      // 바닥 수직항력에 의해 클립 하단 끝이 항상 y >= bottleFloorY 위에 놓이도록 꺾임 각도(arccos) 계산
+      const clearanceY = THREE.MathUtils.clamp(hingeWorldY - bottleFloorY, 0.06, clipLen);
+      floorFoldAngle = Math.acos(clearanceY / clipLen);
+    }
+
     this.hangingClipsGroup.children.forEach((clip, idx) => {
       const centerOffset = idx - (count - 1) / 2;
       const baseSpread = centerOffset * 0.08;
@@ -962,11 +981,17 @@ class SquidExperiment3D {
       const dragFlare = this.state.isInBottle
         ? THREE.MathUtils.clamp(-this.state.squidVy * 0.06, -0.08, 0.12) * Math.sign(centerOffset || 1)
         : 0;
-      clip.rotation.z = THREE.MathUtils.lerp(clip.rotation.z, baseSpread + dragFlare, dt * 8);
 
-      const speed = this.state.isInBottle ? 3.2 : 1.5;
-      const amp = this.state.isInBottle ? 0.02 + Math.min(0.1, Math.abs(this.state.squidVy) * 0.06) : 0.015;
-      clip.rotation.x = Math.sin(elapsed * speed + idx) * amp;
+      // 바닥에 닿을 때는 클립들이 병 바닥 안쪽에서 부채꼴로 자연스럽게 눕도록 X/Z 회전 배분
+      const sideSign = idx % 2 === 0 ? 1 : -1;
+      const targetRotX = floorFoldAngle > 0.01
+        ? sideSign * floorFoldAngle * 0.82
+        : Math.sin(elapsed * (this.state.isInBottle ? 3.2 : 1.5) + idx) * (this.state.isInBottle ? 0.02 + Math.min(0.1, Math.abs(this.state.squidVy) * 0.06) : 0.015);
+
+      const targetRotZ = baseSpread + dragFlare + (centerOffset * floorFoldAngle * 0.28);
+
+      clip.rotation.x = THREE.MathUtils.lerp(clip.rotation.x, targetRotX, dt * 10);
+      clip.rotation.z = THREE.MathUtils.lerp(clip.rotation.z, targetRotZ, dt * 10);
     });
 
     // 물속 공기방울 상승 애니메이션 (수면 아래에서만 상승하도록 제한)
