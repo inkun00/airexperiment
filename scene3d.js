@@ -30,11 +30,20 @@ class SquidExperiment3D {
       capAnim: 0,
       squeeze: 0,        // 0.0 ~ 1.0 (현재 페트병 누르는 정도)
       targetSqueeze: 0,
-      // 물리 시뮬레이션 변수
-      squidY: 1.55,      // 물속 오징어 높이 (물 표면 근처 ~ 바닥)
+      // 물리 시뮬레이션 변수 (보일의 법칙 · 파스칼의 원리 · 아르키메데스 부력 · 유체 연속 방정식)
+      squidY: 1.55,            // 물속 오징어 높이 (물 표면 근처 ~ 바닥)
       squidVy: 0,
-      waterInStrawRatio: 0.15, // 빨대 내부에 물이 찬 비율 (0.1 ~ 0.78)
-      airVolumeRatio: 1.0      // 빨대 내부 공기 부피 비율 (100% 기준)
+      waterTopY: 2.80,         // 페트병 내부 현재 수면 높이
+      spilledVolume: 0,        // 뚜껑을 안 닫고 눌러서 밖으로 쏟아진 물의 부피
+      isOverflowing: false,    // 현재 병 입구로 물이 넘치고 있는지 여부
+      hasSpilledFailure: false,// 물이 쏟아져 실험이 망가진 상태 여부
+      headspacePressureAtm: 1.0, // 병 상단 공기층 압력 (atm)
+      totalPressureAtm: 1.0,   // 빨대 내부 공기가 받는 총 절대압력 (atm)
+      waterInStrawRatio: 0.0,  // 빨대 내부에 물이 들어온 비율 (0.0 ~ 0.65)
+      airVolumeRatio: 1.0,     // 빨대 내부 공기 부피 비율 (1.0 = 100% 기준)
+      totalMassGrams: 2.37,    // 오징어+클립 총 질량 (g)
+      submergedVolCm3: 2.37,   // 물에 잠긴 총 배수 부피 (cm^3)
+      netBuoyancyGf: 0.0       // 알짜 부력 (부력 - 중력, gf)
     };
 
     // 3D 그룹 참조
@@ -46,7 +55,12 @@ class SquidExperiment3D {
     this.strawDecalMesh = null;
     this.internalWaterLeft = null;
     this.internalWaterRight = null;
-    this.internalAirGlow = null;
+    this.internalAirLeft = null;
+    this.internalAirRight = null;
+    this.internalAirArch = null;
+    this.strawMeniscusL = null;
+    this.strawMeniscusR = null;
+    this.strawFlowDrops = [];
 
     this.clipsAssemblyGroup = null;
     this.mainSilverClip = null;
@@ -68,12 +82,21 @@ class SquidExperiment3D {
     this.bubblesGroup = null;
     this.bubblesData = [];
 
+    // 물 넘침(뚜껑 미밀폐 시 실험 실패) 3D 파티클 및 물웅덩이 참조
+    this.spillGroup = null;
+    this.overflowLipMesh = null;
+    this.puddleMesh = null;
+    this.puddleRimMesh = null;
+    this.spillDrops = [];
+    this.initialWaterVolume = 0;
+
     // 캔버스 텍스처 참조
     this.strawCanvasTexture = null;
     this.bottleCanvasTexture = null;
 
     this.isPointerDownOnBottle = false;
     this.onDirectSqueezeChange = null;
+    this.onSpillStateChange = null;
 
     this.init();
   }
@@ -173,15 +196,16 @@ class SquidExperiment3D {
     this.strawGroup = new THREE.Group();
     this.squidGroup.add(this.strawGroup);
 
-    // 반투명 주름 빨대 재질 (어두운 배경/책상 위에서 선명하게 보이도록 대비 강화)
+    // 반투명 주름 빨대 재질 (내부 공기 기둥의 압축과 물 유입이 한눈에 선명히 투시되도록 투명도 최적화)
     const strawMat = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      emissive: 0x1e293b,
-      emissiveIntensity: 0.18,
+      color: 0xf8fafc,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.08,
       transparent: true,
-      opacity: 0.68,
-      roughness: 0.15,
-      transmission: 0.38,
+      opacity: 0.28,
+      roughness: 0.12,
+      transmission: 0.65,
+      depthWrite: false,
       side: THREE.DoubleSide
     });
 
@@ -194,14 +218,14 @@ class SquidExperiment3D {
     this.shortLegMesh.position.set(archRadius, -0.525, 0);
     this.strawGroup.add(this.shortLegMesh);
 
-    // 2) 주름 마디 (위쪽 U자 아치 부분 - 주름 링 11개로 사실적 표현)
+    // 2) 주름 마디 (위쪽 U자 아치 부분 - 주름 링 12개로 사실적 표현)
     this.bellowsGroup = new THREE.Group();
     this.strawGroup.add(this.bellowsGroup);
 
     const numRings = 12;
     this.bellowRings = [];
     for (let i = 0; i <= numRings; i++) {
-      const ringGeo = new THREE.TorusGeometry(strawRadius * 1.04, 0.022, 10, 24);
+      const ringGeo = new THREE.TorusGeometry(strawRadius * 1.04, 0.020, 10, 24);
       const ringMesh = new THREE.Mesh(ringGeo, strawMat);
       this.bellowsGroup.add(ringMesh);
       this.bellowRings.push(ringMesh);
@@ -228,54 +252,96 @@ class SquidExperiment3D {
     tapeShape.absarc(archRadius, 0, strawRadius + 0.014, -Math.PI * 0.5, Math.PI * 0.5, false);
     tapeShape.closePath();
 
-    const extrudeSettings = { depth: 0.32, bevelEnabled: false, curveSegments: 24 };
+    const extrudeSettings = { depth: 0.28, bevelEnabled: false, curveSegments: 24 };
     const tapeGeo = new THREE.ExtrudeGeometry(tapeShape, extrudeSettings);
     tapeGeo.rotateX(Math.PI / 2);
     const tapeMat = new THREE.MeshPhysicalMaterial({
       color: 0xe2e8f0,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.28,
       roughness: 0.08,
       metalness: 0.1,
       clearcoat: 1.0,
+      depthWrite: false,
       side: THREE.DoubleSide
     });
     this.tapeMesh = new THREE.Mesh(tapeGeo, tapeMat);
-    this.tapeMesh.position.set(0, -0.28, 0);
+    this.tapeMesh.position.set(0, -0.18, 0);
     this.tapeMesh.visible = false;
     this.strawGroup.add(this.tapeMesh);
 
-    // 6) 유성펜 드로잉이 매핑될 오징어 몸통 곡면 데칼 메쉬
-    const decalGeo = new THREE.PlaneGeometry(0.68, 1.15);
+    // 6) 유성펜 드로잉이 매핑될 오징어 몸통 곡면 데칼 메쉬 (빨대 아랫부분 공기·물 경계가 잘 보이도록 상단 배치)
+    const decalGeo = new THREE.PlaneGeometry(0.62, 0.65);
     this.strawDecalMat = new THREE.MeshBasicMaterial({
       transparent: true,
+      opacity: 0.88,
       side: THREE.DoubleSide,
       depthWrite: false
     });
     this.strawDecalMesh = new THREE.Mesh(decalGeo, this.strawDecalMat);
-    this.strawDecalMesh.position.set(0, -0.42, strawRadius + 0.018);
+    this.strawDecalMesh.position.set(0, -0.24, strawRadius + 0.018);
     this.strawGroup.add(this.strawDecalMesh);
 
-    // 7) 빨대 내부의 공기 기둥(노란빛 하이라이트) & 차오르는 물 기둥(파란색)
+    // 7) 빨대 내부의 포집된 공기 기둥(밝은 노란빛 기체) & 압력에 의해 밀려 들어오는 물 기둥(선명한 청록·파란색)
     const innerWaterMat = new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
+      color: 0x0284c7,
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 0.45,
       transparent: true,
-      opacity: 0.82,
-      roughness: 0.1
+      opacity: 0.94,
+      roughness: 0.08
     });
     const innerAirMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
       emissive: 0xfacc15,
-      emissiveIntensity: 0.28,
+      emissiveIntensity: 0.58,
       transparent: true,
-      opacity: 0.52
+      opacity: 0.86,
+      roughness: 0.15
     });
 
-    const innerCylGeo = new THREE.CylinderGeometry(strawRadius * 0.78, strawRadius * 0.78, 1.0, 16);
+    const innerCylGeo = new THREE.CylinderGeometry(strawRadius * 0.78, strawRadius * 0.78, 1.0, 20);
     this.internalWaterLeft = new THREE.Mesh(innerCylGeo, innerWaterMat);
     this.internalWaterRight = new THREE.Mesh(innerCylGeo, innerWaterMat);
     this.internalAirLeft = new THREE.Mesh(innerCylGeo, innerAirMat);
     this.internalAirRight = new THREE.Mesh(innerCylGeo, innerAirMat);
+
+    // 빨대 상단 U자 아치 내부의 공기 기둥
+    const archAirGeo = new THREE.TorusGeometry(archRadius, strawRadius * 0.75, 14, 28, Math.PI);
+    this.internalAirArch = new THREE.Mesh(archAirGeo, innerAirMat);
+    this.internalAirArch.visible = false;
+    this.strawGroup.add(this.internalAirArch);
+
+    // 빨대 내부 공기-물 경계면(메니스커스 링) - 압력에 따라 오르내리는 경계를 선명하게 표시
+    const meniscusRingGeo = new THREE.CylinderGeometry(strawRadius * 0.84, strawRadius * 0.84, 0.036, 20);
+    const meniscusRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff
+    });
+    this.strawMeniscusL = new THREE.Mesh(meniscusRingGeo, meniscusRingMat);
+    this.strawMeniscusR = new THREE.Mesh(meniscusRingGeo, meniscusRingMat);
+    this.strawMeniscusL.visible = false;
+    this.strawMeniscusR.visible = false;
+    this.strawGroup.add(this.strawMeniscusL);
+    this.strawGroup.add(this.strawMeniscusR);
+
+    // 빨대 하단 구멍으로 물과 압력이 유입/유출되는 흐름 입자
+    this.strawFlowDrops = [];
+    const flowDropGeo = new THREE.SphereGeometry(0.028, 10, 10);
+    const flowDropMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.9
+    });
+    for (let i = 0; i < 8; i++) {
+      const drop = new THREE.Mesh(flowDropGeo, flowDropMat);
+      drop.visible = false;
+      this.strawGroup.add(drop);
+      this.strawFlowDrops.push({
+        mesh: drop,
+        legSign: i % 2 === 0 ? -1 : 1,
+        phase: (i / 8)
+      });
+    }
 
     this.internalWaterLeft.visible = false;
     this.internalWaterRight.visible = false;
@@ -438,9 +504,6 @@ class SquidExperiment3D {
   }
 
   /**
-   * 500mL 투명 페트병 + 물 + 뚜껑 + 꾸미기 랩 + 공기방울 입자 생성
-   */
-  /**
    * 높이 y(0 ~ 3.85)에서의 페트병 반지름 계산
    */
   getBottleRadiusAtY(y) {
@@ -464,7 +527,70 @@ class SquidExperiment3D {
   }
 
   /**
-   * 500mL 투명 페트병 + 물 + 뚜껑 + 꾸미기 랩 + 공기방울 입자 생성
+   * 높이 y, 눌림 정도 pinchSqueeze에서의 페트병 내부 수평 단면적 A(y, s) 계산
+   * 타원 반장축 a = r*(1 - p), 반단축 b = r*(1 + 0.42*p) -> A = pi * a * b
+   */
+  getBottleInnerAreaAtY(y, pinchSqueeze) {
+    const innerR = Math.max(0.1, this.getBottleRadiusAtY(y) - 0.016);
+    const p = this.getPinchAtY(y, pinchSqueeze);
+    return Math.PI * innerR * innerR * (1 - p) * (1 + 0.42 * p);
+  }
+
+  /**
+   * 바닥(y=0.04)부터 targetY까지의 페트병 내부 적분 부피 V(targetY, s) 계산
+   */
+  computeVolumeUpToY(targetY, pinchSqueeze) {
+    const minY = 0.04;
+    if (targetY <= minY) return 0;
+    const steps = 48;
+    const dy = (targetY - minY) / steps;
+    let vol = 0;
+    let prevA = this.getBottleInnerAreaAtY(minY, pinchSqueeze);
+    for (let i = 1; i <= steps; i++) {
+      const y = minY + i * dy;
+      const currA = this.getBottleInnerAreaAtY(y, pinchSqueeze);
+      vol += 0.5 * (prevA + currA) * dy;
+      prevA = currA;
+    }
+    return vol;
+  }
+
+  /**
+   * 비압축성 유체 연속 방정식(부피 보존)에 의해 주어진 물 부피 targetVol이 차오르는 정확한 수면 높이 y 계산
+   */
+  solveWaterHeightForVolume(targetVol, pinchSqueeze) {
+    const minY = 0.04;
+    const maxY = 3.85;
+    const steps = 56;
+    const dy = (maxY - minY) / steps;
+    let cumVol = 0;
+    let prevA = this.getBottleInnerAreaAtY(minY, pinchSqueeze);
+    let resolvedY = maxY;
+    let found = false;
+
+    for (let i = 1; i <= steps; i++) {
+      const y = minY + i * dy;
+      const currA = this.getBottleInnerAreaAtY(y, pinchSqueeze);
+      const dV = 0.5 * (prevA + currA) * dy;
+      if (!found && cumVol + dV >= targetVol) {
+        const frac = dV > 1e-6 ? (targetVol - cumVol) / dV : 0;
+        resolvedY = (y - dy) + frac * dy;
+        found = true;
+      }
+      cumVol += dV;
+      prevA = currA;
+    }
+
+    const overflowVol = Math.max(0, targetVol - cumVol);
+    return {
+      waterY: found ? resolvedY : maxY,
+      maxCapacity: cumVol,
+      overflowVol
+    };
+  }
+
+  /**
+   * 500mL 투명 페트병 + 물 + 뚜껑 + 꾸미기 랩 + 물 넘침(실패) 시스템 생성
    */
   buildPETBottle() {
     this.bottleGroup = new THREE.Group();
@@ -489,7 +615,7 @@ class SquidExperiment3D {
     const bottleMat = new THREE.MeshPhysicalMaterial({
       color: 0xe0f2fe,
       transparent: true,
-      opacity: 0.30,
+      opacity: 0.28,
       roughness: 0.07,
       metalness: 0.05,
       clearcoat: 1.0,
@@ -507,21 +633,21 @@ class SquidExperiment3D {
     const waterMat = new THREE.MeshPhysicalMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.24,
+      opacity: 0.22,
       roughness: 0.08,
-      transmission: 0.6,
+      transmission: 0.65,
       depthWrite: false
     });
     this.bottleWaterMesh = new THREE.Mesh(this.bottleWaterGeo, waterMat);
     this.bottleGroup.add(this.bottleWaterMesh);
 
-    // 물 표면(수면 메니스커스 원판 - 수위 높이에 따라 병 어깨 폭에 맞춰 자동으로 줄어듦)
+    // 물 표면(수면 메니스커스 원판 - 수위 높이에 따라 병 어깨·목 폭에 맞춰 자동으로 줄어듦)
     const meniscusGeo = new THREE.CircleGeometry(1, 48);
     meniscusGeo.rotateX(-Math.PI / 2);
     const meniscusMat = new THREE.MeshBasicMaterial({
       color: 0x7dd3fc,
       transparent: true,
-      opacity: 0.46,
+      opacity: 0.48,
       side: THREE.DoubleSide,
       depthWrite: false
     });
@@ -529,12 +655,12 @@ class SquidExperiment3D {
     this.bottleGroup.add(this.waterSurfaceMesh);
 
     // 수면 가장자리 밝은 테두리 링 (수면 높이가 한눈에 자연스럽게 보이도록)
-    const rimGeo = new THREE.RingGeometry(0.96, 1.0, 48);
+    const rimGeo = new THREE.RingGeometry(0.95, 1.0, 48);
     rimGeo.rotateX(-Math.PI / 2);
     const rimMat = new THREE.MeshBasicMaterial({
       color: 0xbae6fd,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
       side: THREE.DoubleSide,
       depthWrite: false
     });
@@ -606,6 +732,114 @@ class SquidExperiment3D {
         wobble: Math.random() * Math.PI * 2
       });
     }
+
+    // 뚜껑을 닫지 않고 눌렀을 때 병 입구에서 쏟아지는 물줄기 & 책상 위 물웅덩이 생성
+    this.spillGroup = new THREE.Group();
+    this.bottleGroup.add(this.spillGroup);
+
+    // 병 입구에서 넘쳐흐르는 물막 (Overflow Lip)
+    const lipGeo = new THREE.SphereGeometry(0.34, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
+    const lipMat = new THREE.MeshPhysicalMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.25,
+      transparent: true,
+      opacity: 0.85,
+      roughness: 0.08
+    });
+    this.overflowLipMesh = new THREE.Mesh(lipGeo, lipMat);
+    this.overflowLipMesh.position.set(0, 3.78, 0);
+    this.overflowLipMesh.visible = false;
+    this.spillGroup.add(this.overflowLipMesh);
+
+    // 책상 바닥에 고이는 물웅덩이 (Puddle)
+    const puddleGeo = new THREE.CircleGeometry(1.0, 48);
+    puddleGeo.rotateX(-Math.PI / 2);
+    const puddleMat = new THREE.MeshPhysicalMaterial({
+      color: 0x0ea5e9,
+      emissive: 0x0369a1,
+      emissiveIntensity: 0.22,
+      transparent: true,
+      opacity: 0.72,
+      roughness: 0.06,
+      metalness: 0.15,
+      clearcoat: 1.0
+    });
+    this.puddleMesh = new THREE.Mesh(puddleGeo, puddleMat);
+    this.puddleMesh.position.set(0, 0.006, 0);
+    this.puddleMesh.scale.setScalar(0.001);
+    this.puddleMesh.visible = false;
+    this.spillGroup.add(this.puddleMesh);
+
+    const puddleRimGeo = new THREE.RingGeometry(0.92, 1.0, 48);
+    puddleRimGeo.rotateX(-Math.PI / 2);
+    const puddleRimMat = new THREE.MeshBasicMaterial({
+      color: 0xbae6fd,
+      transparent: true,
+      opacity: 0.75,
+      side: THREE.DoubleSide
+    });
+    this.puddleRimMesh = new THREE.Mesh(puddleRimGeo, puddleRimMat);
+    this.puddleMesh.add(this.puddleRimMesh);
+
+    // 병 입구 밖으로 포물선(중력 가속도 g)을 그리며 쏟아지는 물방울 입자들
+    const dropGeo = new THREE.SphereGeometry(0.055, 10, 10);
+    const dropMat = new THREE.MeshPhysicalMaterial({
+      color: 0x7dd3fc,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.3,
+      transparent: true,
+      opacity: 0.9,
+      roughness: 0.05
+    });
+    this.spillDrops = [];
+    for (let i = 0; i < 48; i++) {
+      const drop = new THREE.Mesh(dropGeo, dropMat);
+      drop.visible = false;
+      this.spillGroup.add(drop);
+      this.spillDrops.push({
+        mesh: drop,
+        active: false,
+        x: 0,
+        y: 3.85,
+        z: 0,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        delay: (i / 48) * 0.45
+      });
+    }
+
+    // 초기 물 부피(수위 y=3.04 기준 - 페트병 어깨 상단까지 물을 가득 채운 상태) 계산 및 저장
+    this.initialWaterVolume = this.computeVolumeUpToY(3.04, 0);
+  }
+
+  /**
+   * 쏟아진 물을 다시 채워 실험 상태를 정상으로 복구
+   */
+  refillWater() {
+    this.state.spilledVolume = 0;
+    this.state.isOverflowing = false;
+    this.state.hasSpilledFailure = false;
+    this.state.waterTopY = this.state.isInBottle ? 3.12 : 3.04;
+    if (this.state.isInBottle && this.state.squidY < 2.5) {
+      this.state.squidY = 2.95;
+      this.state.squidVy = 0;
+    }
+    if (this.puddleMesh) {
+      this.puddleMesh.visible = false;
+      this.puddleMesh.scale.setScalar(0.001);
+    }
+    if (this.overflowLipMesh) {
+      this.overflowLipMesh.visible = false;
+    }
+    this.spillDrops.forEach((d) => {
+      d.active = false;
+      d.mesh.visible = false;
+    });
+    if (this.onSpillStateChange) {
+      this.onSpillStateChange(false, 0);
+    }
   }
 
   /**
@@ -665,9 +899,9 @@ class SquidExperiment3D {
    * 높이 y에서의 페트병 눌림(pinch) 비율 계산
    */
   getPinchAtY(y, squeezeAmount) {
-    if (y > 0.45 && y < 2.75) {
-      const yFactor = Math.sin(((y - 0.45) / 2.3) * Math.PI);
-      return squeezeAmount * 0.34 * yFactor;
+    if (y > 0.35 && y < 2.85) {
+      const yFactor = Math.sin(((y - 0.35) / 2.5) * Math.PI);
+      return squeezeAmount * 0.44 * yFactor;
     }
     return 0;
   }
@@ -675,7 +909,7 @@ class SquidExperiment3D {
   /**
    * 페트병 몸통 및 내부 물 기둥·수면을 병 내벽 곡면에 맞춰 자연스럽게 변형
    */
-  deformBottleGeometry(squeezeAmount, waterTopY) {
+  deformBottleGeometry(pinchSqueeze, waterTopY, handSqueeze = pinchSqueeze) {
     const posAttr = this.bottleBodyGeo.attributes.position;
     const orig = this.bottleOrigPositions;
 
@@ -684,7 +918,7 @@ class SquidExperiment3D {
       const ox = orig[ix];
       const oy = orig[ix + 1];
       const oz = orig[ix + 2];
-      const pinch = this.getPinchAtY(oy, squeezeAmount);
+      const pinch = this.getPinchAtY(oy, pinchSqueeze);
 
       posAttr.array[ix] = ox * (1 - pinch);
       posAttr.array[ix + 2] = oz * (1 + pinch * 0.42);
@@ -704,7 +938,7 @@ class SquidExperiment3D {
       const t = uy + 0.5; // 0.0(바닥) ~ 1.0(수면)
       const wy = THREE.MathUtils.lerp(minWaterY, waterTopY, t);
       const innerR = Math.max(0.1, this.getBottleRadiusAtY(wy) - 0.016);
-      const pinch = this.getPinchAtY(wy, squeezeAmount);
+      const pinch = this.getPinchAtY(wy, pinchSqueeze);
 
       waterAttr.array[ix] = ux * innerR * (1 - pinch);
       waterAttr.array[ix + 1] = wy;
@@ -715,7 +949,7 @@ class SquidExperiment3D {
 
     // 수면 원판(waterSurfaceMesh)도 해당 수위(waterTopY)의 병 내부 단면 크기에 정확히 일치
     const topInnerR = Math.max(0.1, this.getBottleRadiusAtY(waterTopY) - 0.016);
-    const topPinch = this.getPinchAtY(waterTopY, squeezeAmount);
+    const topPinch = this.getPinchAtY(waterTopY, pinchSqueeze);
     this.waterSurfaceMesh.position.y = waterTopY;
     this.waterSurfaceMesh.scale.set(
       topInnerR * (1 - topPinch),
@@ -732,7 +966,7 @@ class SquidExperiment3D {
       const oy = decoOrig[ix + 1] + 1.48;
       const uz = decoOrig[ix + 2];
       const outerR = this.getBottleRadiusAtY(oy) + 0.008;
-      const pinch = this.getPinchAtY(oy, squeezeAmount);
+      const pinch = this.getPinchAtY(oy, pinchSqueeze);
 
       decoAttr.array[ix] = ux * outerR * (1 - pinch);
       decoAttr.array[ix + 2] = uz * outerR * (1 + pinch * 0.42);
@@ -740,10 +974,92 @@ class SquidExperiment3D {
     decoAttr.needsUpdate = true;
 
     // 손 압력 패드 위치 및 투명도 업데이트
-    this.squeezeHandL.material.opacity = squeezeAmount * 0.72;
-    this.squeezeHandR.material.opacity = squeezeAmount * 0.72;
-    this.squeezeHandL.position.x = -1.05 + squeezeAmount * 0.25;
-    this.squeezeHandR.position.x = 1.05 - squeezeAmount * 0.25;
+    this.squeezeHandL.material.opacity = handSqueeze * 0.75;
+    this.squeezeHandR.material.opacity = handSqueeze * 0.75;
+    this.squeezeHandL.position.x = -1.05 + pinchSqueeze * 0.25;
+    this.squeezeHandR.position.x = 1.05 - pinchSqueeze * 0.25;
+  }
+
+  /**
+   * 뚜껑 미밀폐 시 물 넘침 파티클(자유낙하 포물선 운동) 및 책상 위 물웅덩이 업데이트
+   */
+  updateSpillEffects(dt) {
+    const isOverflowing = this.state.isOverflowing;
+    const spilledVol = this.state.spilledVolume;
+
+    if (this.overflowLipMesh) {
+      this.overflowLipMesh.visible = isOverflowing;
+      if (isOverflowing) {
+        const pulse = 1.0 + Math.sin(this.clock.getElapsedTime() * 28) * 0.08;
+        this.overflowLipMesh.scale.set(pulse, 0.8 + this.state.squeeze * 0.5, pulse);
+      }
+    }
+
+    // 책상 위 물웅덩이 크기 업데이트 (부피에 비례하여 반지름 증가)
+    if (this.puddleMesh) {
+      if (spilledVol > 0.005) {
+        this.puddleMesh.visible = true;
+        const targetRadius = Math.min(2.35, 0.55 + Math.sqrt(spilledVol) * 1.25);
+        const currR = this.puddleMesh.scale.x;
+        const nextR = THREE.MathUtils.lerp(currR, targetRadius, dt * 8);
+        this.puddleMesh.scale.set(nextR, 1, nextR);
+      } else {
+        this.puddleMesh.visible = false;
+      }
+    }
+
+    // 중력 가속도(g = 9.8)에 따른 물방울 포물선 낙하 운동
+    const gravity = 9.8;
+    this.spillDrops.forEach((d) => {
+      if (isOverflowing) {
+        if (d.delay > 0) {
+          d.delay -= dt;
+          return;
+        }
+        if (!d.active) {
+          d.active = true;
+          d.mesh.visible = true;
+          const angle = Math.random() * Math.PI * 2;
+          const rimR = 0.24 + Math.random() * 0.08;
+          d.x = Math.cos(angle) * rimR;
+          d.y = 3.85;
+          d.z = Math.sin(angle) * rimR;
+          const outSpeed = 0.65 + this.state.squeeze * 1.15 + Math.random() * 0.45;
+          d.vx = Math.cos(angle) * outSpeed;
+          d.vy = 0.55 + this.state.squeeze * 1.2 + Math.random() * 0.4;
+          d.vz = Math.sin(angle) * outSpeed;
+        }
+      }
+
+      if (d.active) {
+        d.vy -= gravity * dt;
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+        d.z += d.vz * dt;
+        d.mesh.position.set(d.x, d.y, d.z);
+        // 낙하 속도에 따라 물방울이 세로로 살짝 길어짐
+        const stretch = THREE.MathUtils.clamp(1.0 + Math.abs(d.vy) * 0.18, 1.0, 2.2);
+        d.mesh.scale.set(1.0 / Math.sqrt(stretch), stretch, 1.0 / Math.sqrt(stretch));
+
+        // 책상 표면(y <= 0.02)에 닿으면 다시 병 입구에서 뿜어지거나 비활성화
+        if (d.y <= 0.02) {
+          if (isOverflowing) {
+            const angle = Math.random() * Math.PI * 2;
+            const rimR = 0.24 + Math.random() * 0.08;
+            d.x = Math.cos(angle) * rimR;
+            d.y = 3.85;
+            d.z = Math.sin(angle) * rimR;
+            const outSpeed = 0.65 + this.state.squeeze * 1.15 + Math.random() * 0.45;
+            d.vx = Math.cos(angle) * outSpeed;
+            d.vy = 0.55 + this.state.squeeze * 1.2 + Math.random() * 0.4;
+            d.vz = Math.sin(angle) * outSpeed;
+          } else {
+            d.active = false;
+            d.mesh.visible = false;
+          }
+        }
+      }
+    });
   }
 
   /**
@@ -788,7 +1104,7 @@ class SquidExperiment3D {
   }
 
   /**
-   * 매 프레임 애니메이션 및 아르키메데스 부력·보일의 법칙 물리 업데이트
+   * 매 프레임 애니메이션 및 연속방정식·파스칼의 원리·보일의 법칙·아르키메데스 부력 물리 업데이트
    */
   animate() {
     requestAnimationFrame(() => this.animate());
@@ -849,63 +1165,129 @@ class SquidExperiment3D {
     this.bottleCapMesh.position.y = THREE.MathUtils.lerp(this.bottleCapMesh.position.y, targetCapY, dt * 8);
     this.bottleCapMesh.rotation.z = THREE.MathUtils.lerp(this.bottleCapMesh.rotation.z, targetCapRot, dt * 8);
 
-    // 6. 페트병 누르기 압력 및 병 내부 수위 계산
+    // 6. 페트병 누르기(Squeeze) 보간
+    const prevSqueeze = this.state.squeeze;
     this.state.squeeze = THREE.MathUtils.lerp(this.state.squeeze, this.state.targetSqueeze, dt * 9);
-    const baseWaterLevel = this.state.isInBottle ? 2.86 : 2.80;
-    const waterTopY = baseWaterLevel + this.state.squeeze * 0.28;
-    this.deformBottleGeometry(this.state.squeeze, waterTopY);
+    const squeezeRate = (this.state.squeeze - prevSqueeze) / Math.max(dt, 0.001);
+
+    // 오징어 고체 물리량 (주름 빨대 + 테이프: 질량 0.45g, 부피 0.50 cm^3 / 클립 1개: 질량 0.48g, 부피 0.06 cm^3)
+    const totalClips = this.state.hangingClipCount + 1; // 고정 클립 1개 + 매달린 다리 클립 N개
+    const totalMassGrams = 0.45 + 0.48 * totalClips;
+    const solidVolCm3 = 0.50 + 0.06 * totalClips;
+    const V_cavity = 2.42; // 대기압(1.0 atm)에서 빨대 내부 전체 공기 공간 부피 (cm^3)
+    const V_air0 = 2.42;
+
+    // 현재 페트병에 남아 있는 물의 부피 (초기 물 부피 - 쏟아진 물 부피)
+    const remainingWaterVol = Math.max(2.4, this.initialWaterVolume - this.state.spilledVolume);
+    // 오징어가 물속에 잠겨 있을 때 밀어내는 3D 씬 단위 배수 부피
+    const displacedSceneVol = this.state.isInBottle ? (this.state.submergedVolCm3 * 0.042) : 0;
+    const totalLiquidAndSubmergedVol = remainingWaterVol + displacedSceneVol;
+
+    let effectivePinch = this.state.squeeze;
+    let waterTopY = 2.82;
+
+    if (!this.state.isCapClosed) {
+      // [케이스 A: 뚜껑이 열려 있을 때 (개방계)]
+      // 1) 병 입구가 대기(1.0 atm)와 직접 통하므로 상단 기체 압력은 항상 대기압(1.0 atm)으로 유지됨
+      this.state.headspacePressureAtm = 1.0;
+
+      // 2) 비압축성인 물이 눌린 병 몸통에서 좁은 병목으로 급격히 밀려 올라감
+      effectivePinch = this.state.squeeze;
+      const volSolution = this.solveWaterHeightForVolume(totalLiquidAndSubmergedVol, effectivePinch);
+      waterTopY = volSolution.waterY;
+
+      // 3) 수위가 병 입구 끝(y = 3.85)에 도달한 상태에서 더 누르면 초과 부피만큼 병 밖으로 물이 쏟아짐!
+      if (volSolution.overflowVol > 0.0005) {
+        this.state.spilledVolume = Math.min(2.6, this.state.spilledVolume + volSolution.overflowVol);
+        this.state.isOverflowing = true;
+        waterTopY = 3.85;
+        if (this.state.spilledVolume > 0.04 && !this.state.hasSpilledFailure) {
+          this.state.hasSpilledFailure = true;
+          if (this.onSpillStateChange) {
+            this.onSpillStateChange(true, this.state.spilledVolume);
+          }
+        }
+      } else {
+        this.state.isOverflowing = (this.state.squeeze > 0.25 && waterTopY >= 3.83 && squeezeRate > -0.05);
+      }
+    } else {
+      // [케이스 B: 뚜껑이 닫혀 있을 때 (밀폐계)]
+      // 1) 물이 병 밖으로 빠져나갈 수 없으므로 넘침 없음
+      this.state.isOverflowing = false;
+
+      // 2) 비압축성 액체(물)는 부피가 줄어들지 않으므로, 상단 공기층(Headspace)과 빨대 속 공기만 압축됨
+      const unpinchedBottleCap = this.computeVolumeUpToY(3.85, 0);
+      const V_head0 = Math.max(0.18, unpinchedBottleCap - totalLiquidAndSubmergedVol);
+      // 손으로 누르는 힘에 의해 상단 공기가 압축되는 부피 변화량
+      const deltaV_gas = Math.min(V_head0 * 0.468 * this.state.squeeze, 0.142 * this.state.squeeze);
+      const V_head = Math.max(0.08, V_head0 - deltaV_gas);
+
+      // 3) 보일의 법칙(P_head * V_head = P0 * V_head0):
+      // 정상 수위에서는 최대로 누를 때 P_head ≈ 1.88 atm까지 상승!
+      // 만약 뚜껑을 안 닫고 눌러 물을 쏟은 뒤(V_head0가 매우 커진 상태) 물을 안 채우고 뚜껑만 닫으면,
+      // 공기 완충 공간(V_head0)이 너무 커서 P_head가 거의 올라가지 않아(≈ 1.15 atm) 오징어가 가라앉지 않음!
+      this.state.headspacePressureAtm = 1.0 * (V_head0 / V_head);
+
+      // 밀폐된 상태에서 병 벽면의 실제 오목 변형량은 기체가 압축된 부피(deltaV_gas)에 비례
+      effectivePinch = this.state.squeeze * 0.45;
+      const sealedSolution = this.solveWaterHeightForVolume(totalLiquidAndSubmergedVol, effectivePinch);
+      waterTopY = Math.min(3.78, sealedSolution.waterY);
+    }
+
+    this.state.waterTopY = waterTopY;
+    this.deformBottleGeometry(effectivePinch, waterTopY, this.state.squeeze);
+    this.updateSpillEffects(dt);
 
     if (this.state.isInBottle) {
-      // 1) 파스칼의 원리: 뚜껑이 닫혀 있을 때만 누르는 힘이 내부 기체 압력(atm)으로 전달됨
-      // 뚜껑이 열려 있으면 대기압(1.0 atm)과 통하므로 추가 압력이 0이 됨
-      const squeezePressureAtm = this.state.isCapClosed ? this.state.squeeze * 0.85 : 0.0;
+      // 1) 수심(h)에 따른 정수압 (Hydrostatic pressure: P_hydro = rho * g * h)
+      // 빨대 내부 공기-물 경계면(메니스커스)의 월드 Y 좌표
+      const legLen = 1.05;
+      const meniscusWorldY = this.state.squidY - legLen + legLen * this.state.waterInStrawRatio;
+      const submergenceDepth = Math.max(0, waterTopY - meniscusWorldY);
+      const depthPressureAtm = submergenceDepth * 0.022;
 
-      // 2) 수심(h)에 따른 정수압(Hydrostatic pressure: rho * g * h) 반영
-      const submergenceDepth = Math.max(0, waterTopY - this.state.squidY);
-      const depthPressureAtm = submergenceDepth * 0.035;
+      // 2) 파스칼의 원리: 빨대 하단 열린 구멍을 통해 전달되는 총 절대 압력 P_straw (단위: atm)
+      const totalPressureAtm = this.state.headspacePressureAtm + depthPressureAtm;
+      this.state.totalPressureAtm = totalPressureAtm;
 
-      // 총 절대 압력 P (단위: atm, 대기압 P0 = 1.0)
-      const totalPressureAtm = 1.0 + squeezePressureAtm + depthPressureAtm;
-
-      // 3) 보일의 법칙 (P * V_air = P0 * V_air0): 압력에 반비례하여 빨대 속 공기 부피 감소
-      const V_cavity = 2.65; // 빨대 내부 전체 공간 부피 (cm^3)
-      const V_air0 = 2.35;   // 대기압(1 atm)에서 초기 포집된 공기 부피 (cm^3)
+      // 3) 보일의 법칙 (P_straw * V_air = P0 * V_air0):
+      // 압력에 정확히 반비례하여 빨대 내부 공기 부피가 줄어들고, 줄어든 공간만큼 아래에서 물이 차오름
       const V_air = V_air0 / totalPressureAtm;
+      this.state.airVolumeRatio = THREE.MathUtils.clamp(V_air / V_cavity, 0.35, 1.0);
+      this.state.waterInStrawRatio = THREE.MathUtils.clamp(1.0 - this.state.airVolumeRatio, 0.0, 0.65);
 
-      this.state.airVolumeRatio = V_air / V_air0;
-      this.state.waterInStrawRatio = THREE.MathUtils.clamp((V_cavity - V_air) / V_cavity, 0.11, 0.82);
+      // 4) 아르키메데스의 부력 법칙 (F_b = rho_water * V_submerged * g) vs 중력 (W = m_total * g)
+      const maxDisplacedVolCm3 = solidVolCm3 + V_air;
 
-      // 4) 아르키메데스의 부력 vs 중력 (실제 그램·cm^3 물리량 기반)
-      // - 주름 빨대 + 테이프 질량: 0.45g, 부피: 0.50 cm^3
-      // - 클립 1개 질량: 0.48g, 철사 자체 부피: 0.06 cm^3 (고정 클립 1개 + 다리 클립 N개 = 총 N+1개)
-      const totalClips = this.state.hangingClipCount + 1;
-      const totalMassGrams = 0.45 + 0.48 * totalClips;
-      const maxDisplacedVolCm3 = 0.50 + 0.06 * totalClips + V_air;
-
-      // 수면 위로 빨대 윗부분(정수리 y = squidY + 0.25)이 노출되면 노출된 부피만큼 배수 부피 감소
+      // 수면(waterTopY) 위로 빨대 정수리(y = squidY + 0.25)가 올라오면 노출된 부피만큼 배수 부피 감소
       const strawCrownY = this.state.squidY + 0.25;
       const emergedHeight = Math.max(0, strawCrownY - waterTopY);
-      const emergedFraction = THREE.MathUtils.clamp(emergedHeight / 0.52, 0, 0.85);
+      const emergedFraction = THREE.MathUtils.clamp(emergedHeight / 0.55, 0, 0.92);
       const submergedVolCm3 = maxDisplacedVolCm3 * (1.0 - emergedFraction);
 
-      // 알짜 부력 (물 밀도 1.0 g/cm^3 기준: 부력 - 중력) 및 유체 항력(Drag)
-      const netBuoyancyForce = (submergedVolCm3 - totalMassGrams) * 6.8;
+      this.state.totalMassGrams = totalMassGrams;
+      this.state.submergedVolCm3 = submergedVolCm3;
+      this.state.netBuoyancyGf = submergedVolCm3 - totalMassGrams;
+
+      // 알짜 힘 (부력 - 중력) 및 유체 항력(선형 점성 저항 + 이차 형상 저항)
+      const netBuoyancyForce = (submergedVolCm3 - totalMassGrams) * 7.2;
       const linearDrag = -this.state.squidVy * 3.8;
       const quadDrag = -this.state.squidVy * Math.abs(this.state.squidVy) * 1.6;
 
+      // 뉴턴의 제2법칙 (F = m_eff * a, 부가 질량 포함)
       const accelY = (netBuoyancyForce + linearDrag + quadDrag) / (totalMassGrams * 0.45);
       this.state.squidVy += accelY * dt;
       this.state.squidY += this.state.squidVy * dt;
 
-      // 페트병 바닥 충돌 처리:
-      // 첫 번째 고정 클립 하단이 y = squidY - 1.37 이므로, 병 바닥 내벽(y = 0.08)에 닿는 한계 높이는 1.45
-      const bottleFloorY = 0.08;
+      // 5) 강체 경계 조건 (바닥 수직항력 및 병목 반경 제약):
+      // - 바닥 한계(bottomLimitY = 1.45): 고정 클립 하단(y = squidY - 1.37)이 병 바닥 내벽(y = 0.08)에 닿음
+      // - 상단 병목 한계(neckLimitY = 3.32): U자 빨대 폭(0.65)이 좁아지는 병목(반지름 0.31)을 통과하지 못함
       const bottomLimitY = 1.45;
       if (this.state.squidY <= bottomLimitY) {
         this.state.squidY = bottomLimitY;
         if (this.state.squidVy < 0) this.state.squidVy = 0;
       }
-      const topLimitY = waterTopY + 0.12;
+      const topLimitY = Math.min(3.32, waterTopY + 0.12);
       if (this.state.squidY > topLimitY) {
         this.state.squidY = topLimitY;
         if (this.state.squidVy > 0) this.state.squidVy = 0;
@@ -926,25 +1308,45 @@ class SquidExperiment3D {
         dt * 5
       );
 
-      // 빨대 내부에 차오르는 물 기둥과 줄어드는 공기 기둥 시각화
+      // 6) 빨대 내부에 압력에 따라 들어오는 물 기둥과 압축되는 공기 기둥 3D 시각화
       this.internalWaterLeft.visible = true;
       this.internalWaterRight.visible = true;
       this.internalAirLeft.visible = true;
       this.internalAirRight.visible = true;
+      this.internalAirArch.visible = true;
+      this.strawMeniscusL.visible = true;
+      this.strawMeniscusR.visible = true;
 
-      const legLen = 1.05;
-      const waterH = legLen * this.state.waterInStrawRatio;
-      const airH = legLen - waterH;
+      // 아치 부분 부피를 고려하여 두 다리에서 물이 차오르는 높이(waterH) 계산
+      const legWaterFraction = THREE.MathUtils.clamp(this.state.waterInStrawRatio * 1.32, 0.04, 0.88);
+      const waterH = legLen * legWaterFraction;
+      const airH = Math.max(0.05, legLen - waterH);
+      const meniscusLocalY = -legLen + waterH;
 
-      this.internalWaterLeft.scale.y = Math.max(0.05, waterH);
+      this.internalWaterLeft.scale.y = Math.max(0.04, waterH);
       this.internalWaterLeft.position.set(-0.23, -legLen + waterH / 2, 0);
-      this.internalWaterRight.scale.y = Math.max(0.05, waterH);
+      this.internalWaterRight.scale.y = Math.max(0.04, waterH);
       this.internalWaterRight.position.set(0.23, -legLen + waterH / 2, 0);
 
-      this.internalAirLeft.scale.y = Math.max(0.05, airH);
+      this.internalAirLeft.scale.y = airH;
       this.internalAirLeft.position.set(-0.23, -airH / 2, 0);
-      this.internalAirRight.scale.y = Math.max(0.05, airH);
+      this.internalAirRight.scale.y = airH;
       this.internalAirRight.position.set(0.23, -airH / 2, 0);
+
+      // 공기-물 경계면 밝은 메니스커스 링 위치 업데이트
+      this.strawMeniscusL.position.set(-0.23, meniscusLocalY, 0);
+      this.strawMeniscusR.position.set(0.23, meniscusLocalY, 0);
+
+      // 압력 변화 시 빨대 하단 구멍으로 물/기포가 밀려 들어오고 나가는 입자 애니메이션
+      const showFlow = this.state.isCapClosed && (this.state.squeeze > 0.05 || Math.abs(squeezeRate) > 0.05);
+      this.strawFlowDrops.forEach((fd) => {
+        fd.mesh.visible = showFlow;
+        if (showFlow) {
+          fd.phase = (fd.phase + dt * (0.8 + Math.abs(squeezeRate) * 2.5) * (squeezeRate >= -0.02 ? 1 : -1) + 1) % 1;
+          const yPos = THREE.MathUtils.lerp(-legLen - 0.04, meniscusLocalY, fd.phase);
+          fd.mesh.position.set(fd.legSign * 0.23, yPos, 0);
+        }
+      });
     } else {
       // 실험대 위 제작 위치 (클립이 책상 위로 완전히 보이도록 y=2.25 유지)
       this.squidGroup.position.x = THREE.MathUtils.lerp(this.squidGroup.position.x, -1.35, dt * 6);
@@ -957,8 +1359,15 @@ class SquidExperiment3D {
       this.internalWaterRight.visible = false;
       this.internalAirLeft.visible = false;
       this.internalAirRight.visible = false;
+      this.internalAirArch.visible = false;
+      this.strawMeniscusL.visible = false;
+      this.strawMeniscusR.visible = false;
+      this.strawFlowDrops.forEach((fd) => {
+        fd.mesh.visible = false;
+      });
       this.state.waterInStrawRatio = 0;
       this.state.airVolumeRatio = 1.0;
+      this.state.totalPressureAtm = 1.0;
     }
 
     // 오징어 다리 클립들의 물리적 바닥 접촉(바닥에 닿으면 뚫고 내려가지 않고 옆/앞뒤로 꺾여 누움) 및 유체 저항

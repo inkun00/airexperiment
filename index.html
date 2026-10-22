@@ -168,7 +168,7 @@
           <div id="stepPanel4" class="step-control-card">
             <div class="step-header">
               <span class="step-badge">4단계</span>
-              <h3>페트병에 넣고 세게 눌러 실험하기</h3>
+              <h3>페트병에 넣고 뚜껑 닫아 실험하기</h3>
             </div>
 
             <div class="action-buttons-stack">
@@ -178,14 +178,25 @@
               </button>
               <button id="btnCloseBottleCap" class="lab-action-btn" disabled>
                 <span class="btn-step-circle">4-2</span>
-                <span>🔄 페트병 뚜껑 닫기 / 열기</span>
+                <span>🔓 페트병 뚜껑 닫기 (현재: 열림)</span>
+              </button>
+            </div>
+
+            <!-- 뚜껑을 안 닫고 눌러서 물이 쏟아졌을 때 나타나는 실험 실패 알림창 -->
+            <div id="spillAlertBox" class="spill-alert-box" style="display: none;">
+              <div class="spill-alert-title">💦 앗! 물이 밖으로 쏟아졌어요! (실험 실패)</div>
+              <p id="spillAlertDesc" class="spill-alert-desc">
+                뚜껑을 닫지 않고 페트병을 눌러서 물이 병 입구로 넘쳐흐르고 압력이 대기 중으로 빠져나갔어요. 물을 다시 채우고 반드시 뚜껑을 닫아 주세요!
+              </p>
+              <button id="btnRefillWater" class="refill-water-btn">
+                🚰 페트병에 물 다시 가득 채우기
               </button>
             </div>
 
             <div class="squeeze-control-panel" id="squeezeControlPanel">
               <div class="squeeze-header">
                 <span>👐 <strong>페트병 누르기</strong></span>
-                <span id="squeezePercentBadge" class="pressure-badge">압력 0%</span>
+                <span id="squeezePercentBadge" class="pressure-badge">1.00 atm (압력 0%)</span>
               </div>
 
               <button id="btnHoldSqueeze" class="squeeze-big-btn" disabled>
@@ -225,8 +236,8 @@
 
             <!-- 우측 하단 빨대 내부 기체·물 단면 확대 뷰 (오버레이) -->
             <div class="xray-floating-box">
-              <div class="xray-floating-title">🔬 빨대 내부 단면 (기체 · 물)</div>
-              <canvas id="xrayCanvas" width="230" height="240"></canvas>
+              <div class="xray-floating-title">🔬 빨대 내부 단면 (기체 · 물 · 압력)</div>
+              <canvas id="xrayCanvas" width="245" height="260"></canvas>
             </div>
           </div>
         </div>

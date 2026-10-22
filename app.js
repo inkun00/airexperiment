@@ -119,6 +119,32 @@ document.addEventListener('DOMContentLoaded', () => {
       osc.start(now);
       osc.stop(now + 0.23);
     }
+
+    playSpill() {
+      if (!this.enabled) return;
+      this.initCtx();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.42);
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.55));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(900, now);
+      filter.frequency.exponentialRampToValueAtTime(420, now + 0.4);
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+      noise.start(now);
+    }
   }
 
   const sfx = new SoundFX();
@@ -474,33 +500,72 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnHoldSqueeze = document.getElementById('btnHoldSqueeze');
   const sliderSqueeze = document.getElementById('sliderSqueeze');
   const squeezePercentBadge = document.getElementById('squeezePercentBadge');
+  const spillAlertBox = document.getElementById('spillAlertBox');
+  const spillAlertDesc = document.getElementById('spillAlertDesc');
+  const btnRefillWater = document.getElementById('btnRefillWater');
+
+  function updateCapButtonLabel() {
+    btnCloseBottleCap.classList.toggle('done', sim3D.state.isCapClosed);
+    btnCloseBottleCap.querySelector('span:last-child').textContent = sim3D.state.isCapClosed
+      ? '🔒 페트병 뚜껑 닫힘 (클릭 시 열기)'
+      : '🔓 페트병 뚜껑 닫기 (현재: 열림)';
+  }
 
   btnPutSquidInBottle.addEventListener('click', () => {
     completeStep1Silently();
     completeStep2Silently();
     sfx.playSplash();
     sim3D.state.isInBottle = true;
-    sim3D.state.squidY = 2.82;
+    sim3D.state.squidY = 2.98;
+    sim3D.state.squidVy = 0;
     btnPutSquidInBottle.classList.add('done');
     btnCloseBottleCap.disabled = false;
     btnHoldSqueeze.disabled = false;
     sliderSqueeze.disabled = false;
+    updateCapButtonLabel();
   });
 
   btnCloseBottleCap.addEventListener('click', () => {
     sfx.playClick();
     sim3D.state.isCapClosed = !sim3D.state.isCapClosed;
-    btnCloseBottleCap.classList.toggle('done', sim3D.state.isCapClosed);
-    btnCloseBottleCap.querySelector('span:last-child').textContent = sim3D.state.isCapClosed
-      ? '🔒 페트병 뚜껑 닫힘 (클릭 시 열기)'
-      : '🔓 페트병 뚜껑 열림 (클릭 시 닫기)';
+    updateCapButtonLabel();
+    if (sim3D.state.hasSpilledFailure && sim3D.state.isCapClosed) {
+      spillAlertDesc.textContent =
+        '이미 물이 많이 쏟아져 병 안의 수위가 낮아졌어요! 빈 공기 공간이 너무 넓어 압력이 충분히 전달되지 않으니 물을 다시 가득 채워 주세요.';
+    }
+  });
+
+  // 뚜껑을 안 닫고 눌러 물이 쏟아졌을 때 알림 및 효과음 처리
+  let lastSpillSoundTime = 0;
+  sim3D.onSpillStateChange = (hasFailed) => {
+    if (hasFailed) {
+      spillAlertBox.style.display = 'flex';
+      spillAlertDesc.textContent =
+        '뚜껑을 닫지 않고 페트병을 눌러서 물이 병 입구로 쏟아져 나오고 압력이 대기 중으로 빠져나갔어요! 물을 다시 채우고 뚜껑을 꼭 닫아 주세요.';
+      sfx.playSpill();
+    } else {
+      spillAlertBox.style.display = 'none';
+    }
+  };
+
+  btnRefillWater.addEventListener('click', () => {
+    sfx.playSplash();
+    setSqueezePercent(0);
+    sim3D.refillWater();
+    spillAlertBox.style.display = 'none';
   });
 
   function setSqueezePercent(pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct)));
     sliderSqueeze.value = clamped;
-    squeezePercentBadge.textContent = `압력 ${Math.round(clamped)}%`;
     sim3D.state.targetSqueeze = clamped / 100;
+    if (clamped > 28 && !sim3D.state.isCapClosed && sim3D.state.isInBottle) {
+      const now = performance.now();
+      if (now - lastSpillSoundTime > 550) {
+        sfx.playSpill();
+        lastSpillSoundTime = now;
+      }
+    }
   }
 
   sim3D.onDirectSqueezeChange = (pct) => {
@@ -570,12 +635,14 @@ document.addEventListener('DOMContentLoaded', () => {
     sim3D.state.isClipInserted = false;
     sim3D.state.isInBottle = false;
     sim3D.state.isCapClosed = false;
+    sim3D.refillWater();
     setSqueezePercent(0);
 
     [btnBendStraw, btnCutStraw, btnTapeStraw, btnHookClips, btnInsertClipStraw, btnPutSquidInBottle, btnCloseBottleCap].forEach((b) => {
       b.classList.remove('done');
     });
-    btnCloseBottleCap.querySelector('span:last-child').textContent = '🔄 페트병 뚜껑 닫기 / 열기';
+    updateCapButtonLabel();
+    spillAlertBox.style.display = 'none';
     btnCutStraw.disabled = true;
     btnTapeStraw.disabled = true;
     btnCloseBottleCap.disabled = true;
@@ -596,78 +663,167 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const st = sim3D.state;
     const airPct = Math.round(st.airVolumeRatio * 100);
+    const waterInPct = 100 - airPct;
+    const squeezePct = Math.round(st.squeeze * 100);
+    const pAtm = st.totalPressureAtm ? st.totalPressureAtm.toFixed(2) : '1.00';
+
+    // 상단 압력 배지 실시간 업데이트
+    if (squeezePercentBadge) {
+      squeezePercentBadge.textContent = `${pAtm} atm (누름 ${squeezePct}%)`;
+    }
 
     const w = xrayCanvas.width;
     const h = xrayCanvas.height;
     xCtx.clearRect(0, 0, w, h);
 
-    const waterSurfaceY = 44 - st.squeeze * 8;
-
-    // 페트병 물 위 기체 영역
-    xCtx.fillStyle = 'rgba(254, 240, 138, 0.22)';
-    xCtx.fillRect(14, 10, w - 28, waterSurfaceY - 10);
-    xCtx.fillStyle = '#fde047';
+    // 1) 상단 뚜껑 개폐 상태 표시바
+    xCtx.fillStyle = st.isCapClosed ? 'rgba(2, 132, 199, 0.9)' : 'rgba(239, 68, 68, 0.85)';
+    xCtx.fillRect(14, 6, w - 28, 20);
+    xCtx.fillStyle = '#ffffff';
     xCtx.font = 'bold 10px "Noto Sans KR"';
     xCtx.textAlign = 'center';
-    xCtx.fillText('물 위 기체(공기)', w / 2, 26);
+    if (st.isOverflowing) {
+      xCtx.fillText('💦 뚜껑 열림: 물이 밖으로 쏟아짐!', w / 2, 20);
+    } else if (st.isCapClosed) {
+      xCtx.fillText(`🔒 뚜껑 닫힘 (밀폐 압력: ${pAtm} atm)`, w / 2, 20);
+    } else {
+      xCtx.fillText('🔓 뚜껑 열림 (대기 개방: 1.00 atm)', w / 2, 20);
+    }
+
+    // 2) 병 내부 수위(waterTopY)를 단면도 Y좌표로 변환
+    // 정상 수위(3.08) -> y=52, 병 입구(3.85) -> y=28, 물이 쏟아져 낮아진 수위(2.50) -> y=78
+    const normWaterY = Math.max(28, Math.min(96, 52 - (st.waterTopY - 3.08) * 32));
+
+    // 페트병 물 위 기체(공기) 영역
+    if (normWaterY > 27) {
+      xCtx.fillStyle = 'rgba(254, 240, 138, 0.22)';
+      xCtx.fillRect(14, 27, w - 28, normWaterY - 27);
+      if (normWaterY - 27 >= 16) {
+        xCtx.fillStyle = '#fde047';
+        xCtx.font = 'bold 9.5px "Noto Sans KR"';
+        xCtx.fillText(
+          st.hasSpilledFailure && !st.isOverflowing
+            ? '⚠️ 물이 쏟아져 빈 공기층 증가'
+            : '병 상단 기체(공기)',
+          w / 2,
+          27 + (normWaterY - 27) * 0.62
+        );
+      }
+    }
 
     // 페트병 물 영역
-    const waterGrad = xCtx.createLinearGradient(0, waterSurfaceY, 0, h - 10);
+    const waterGrad = xCtx.createLinearGradient(0, normWaterY, 0, h - 8);
     waterGrad.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
-    waterGrad.addColorStop(1, 'rgba(3, 105, 161, 0.55)');
+    waterGrad.addColorStop(1, 'rgba(3, 105, 161, 0.58)');
     xCtx.fillStyle = waterGrad;
-    xCtx.fillRect(14, waterSurfaceY, w - 28, h - 10 - waterSurfaceY);
+    xCtx.fillRect(14, normWaterY, w - 28, h - 8 - normWaterY);
 
     xCtx.strokeStyle = '#7dd3fc';
     xCtx.lineWidth = 1.5;
     xCtx.beginPath();
-    xCtx.moveTo(14, waterSurfaceY);
-    xCtx.lineTo(w - 14, waterSurfaceY);
+    xCtx.moveTo(14, normWaterY);
+    xCtx.lineTo(w - 14, normWaterY);
     xCtx.stroke();
 
-    // U자 주름 빨대 단면
-    const centerX = w / 2;
-    const archTopY = 66 + (st.isInBottle ? (2.85 - st.squidY) * 15 : 0);
-    const legHeight = 96;
-    const legHalfGap = 30;
-    const legWidth = 20;
+    // 물 넘침 시 상단 물방울 튀는 시각 효과
+    if (st.isOverflowing) {
+      xCtx.fillStyle = '#38bdf8';
+      for (let i = 0; i < 6; i++) {
+        const bx = 26 + i * 38 + Math.sin(performance.now() * 0.015 + i) * 6;
+        const by = 28 + Math.abs(Math.cos(performance.now() * 0.02 + i)) * 10;
+        xCtx.beginPath();
+        xCtx.arc(bx, by, 3.5, 0, Math.PI * 2);
+        xCtx.fill();
+      }
+    }
 
-    const waterFillRatio = st.isInBottle ? st.waterInStrawRatio : 0.0;
-    const waterFillPx = legHeight * waterFillRatio;
+    // 3) U자 주름 빨대 단면
+    const centerX = w / 2;
+    const archTopY = 74 + (st.isInBottle ? (2.85 - st.squidY) * 14 : 0);
+    const legHeight = 96;
+    const legHalfGap = 32;
+    const legWidth = 22;
+
+    // 아치 부피를 고려한 다리 내부 물 차오름 높이
+    const legWaterRatio = st.isInBottle ? Math.min(0.86, st.waterInStrawRatio * 1.32) : 0.0;
+    const waterFillPx = legHeight * legWaterRatio;
     const airBottomY = archTopY + legHeight - waterFillPx;
 
-    // 빨대 내부 기체(공기)
-    xCtx.fillStyle = 'rgba(250, 204, 21, 0.85)';
+    // 빨대 내부 기체(공기) - 압력에 따라 부피가 줄어듦
+    xCtx.fillStyle = 'rgba(250, 204, 21, 0.90)';
     xCtx.beginPath();
     xCtx.arc(centerX, archTopY + 18, legHalfGap + legWidth / 2, Math.PI, 0, false);
     xCtx.arc(centerX, archTopY + 18, legHalfGap - legWidth / 2, 0, Math.PI, true);
     xCtx.closePath();
     xCtx.fill();
 
-    const airLegH = Math.max(0, (archTopY + legHeight - waterFillPx) - (archTopY + 18));
+    const airLegH = Math.max(0, airBottomY - (archTopY + 18));
     xCtx.fillRect(centerX - legHalfGap - legWidth / 2, archTopY + 18, legWidth, airLegH);
     xCtx.fillRect(centerX + legHalfGap - legWidth / 2, archTopY + 18, legWidth, airLegH);
 
-    // 빨대 내부로 들어온 물
+    // 빨대 아래쪽 열린 구멍으로 밀고 들어온 물 기둥
     if (waterFillPx > 0) {
       xCtx.fillStyle = '#0284c7';
       xCtx.fillRect(centerX - legHalfGap - legWidth / 2, airBottomY, legWidth, waterFillPx);
       xCtx.fillRect(centerX + legHalfGap - legWidth / 2, airBottomY, legWidth, waterFillPx);
+
+      // 공기-물 경계면(메니스커스) 하이라이트 선
+      xCtx.strokeStyle = '#ffffff';
+      xCtx.lineWidth = 2.2;
+      xCtx.beginPath();
+      xCtx.moveTo(centerX - legHalfGap - legWidth / 2, airBottomY);
+      xCtx.lineTo(centerX - legHalfGap + legWidth / 2, airBottomY);
+      xCtx.moveTo(centerX + legHalfGap - legWidth / 2, airBottomY);
+      xCtx.lineTo(centerX + legHalfGap + legWidth / 2, airBottomY);
+      xCtx.stroke();
     }
 
+    // 빨대 외벽 테두리
     xCtx.strokeStyle = '#f8fafc';
     xCtx.lineWidth = 2;
     xCtx.strokeRect(centerX - legHalfGap - legWidth / 2, archTopY + 18, legWidth, legHeight - 18);
     xCtx.strokeRect(centerX + legHalfGap - legWidth / 2, archTopY + 18, legWidth, legHeight - 18);
 
+    // 뚜껑을 닫고 누를 때 빨대 안으로 수압이 전달되어 물이 밀고 들어가는 화살표 표시
+    if (st.isInBottle && st.isCapClosed && st.squeeze > 0.08) {
+      xCtx.fillStyle = '#bae6fd';
+      xCtx.font = 'bold 11px "Noto Sans KR"';
+      xCtx.fillText('⬆', centerX - legHalfGap, archTopY + legHeight + 11);
+      xCtx.fillText('⬆', centerX + legHalfGap, archTopY + legHeight + 11);
+      xCtx.fillStyle = '#7dd3fc';
+      xCtx.font = 'bold 9.5px "Noto Sans KR"';
+      xCtx.fillText('수압 증가 → 물 유입·공기 압축', centerX, archTopY + legHeight + 24);
+    } else if (st.isInBottle && !st.isCapClosed && st.squeeze > 0.08) {
+      xCtx.fillStyle = '#fca5a5';
+      xCtx.font = 'bold 9.5px "Noto Sans KR"';
+      xCtx.fillText('뚜껑 열림 → 압력 전달 안 됨', centerX, archTopY + legHeight + 22);
+    }
+
+    // 빨대 안 공기·물 비율 텍스트
     xCtx.fillStyle = '#fef08a';
     xCtx.font = 'bold 10px "Noto Sans KR"';
-    xCtx.fillText(`빨대 안 기체 (${airPct}%)`, centerX, archTopY - 6);
+    xCtx.fillText(
+      st.isInBottle
+        ? `빨대 안: 공기 ${airPct}% · 물 ${waterInPct}%`
+        : `빨대 안 기체 (${airPct}%)`,
+      centerX,
+      archTopY - 5
+    );
 
-    const clipBottomY = archTopY + legHeight + 14;
+    // 하단 부력 vs 중력 및 클립 개수 표시
+    const footerY = h - 14;
     xCtx.fillStyle = '#e2e8f0';
-    xCtx.font = 'bold 10px "Noto Sans KR"';
-    xCtx.fillText(`📎 다리 클립: ${st.hangingClipCount}개`, centerX, clipBottomY);
+    xCtx.font = 'bold 9.5px "Noto Sans KR"';
+    if (st.isInBottle) {
+      const sign = st.netBuoyancyGf >= 0 ? '+' : '';
+      xCtx.fillText(
+        `📎 다리클립 ${st.hangingClipCount}개 (알짜부력: ${sign}${st.netBuoyancyGf.toFixed(2)} gf)`,
+        centerX,
+        footerY
+      );
+    } else {
+      xCtx.fillText(`📎 다리 클립: ${st.hangingClipCount}개`, centerX, footerY);
+    }
   }
 
   renderXRay();
