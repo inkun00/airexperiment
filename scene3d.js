@@ -856,44 +856,68 @@ class SquidExperiment3D {
     this.deformBottleGeometry(this.state.squeeze, waterTopY);
 
     if (this.state.isInBottle) {
-      // 뚜껑이 닫혀 있어야 압력이 공기 방울에 온전히 전달됨! (뚜껑이 열려 있으면 압력 전달이 15%에 불과)
-      const effectivePressure = this.state.isCapClosed
-        ? this.state.squeeze
-        : this.state.squeeze * 0.12;
+      // 1) 파스칼의 원리: 뚜껑이 닫혀 있을 때만 누르는 힘이 내부 기체 압력(atm)으로 전달됨
+      // 뚜껑이 열려 있으면 대기압(1.0 atm)과 통하므로 추가 압력이 0이 됨
+      const squeezePressureAtm = this.state.isCapClosed ? this.state.squeeze * 0.85 : 0.0;
 
-      // 보일의 법칙에 따른 빨대 내부 공기 부피 감소 및 물 유입 비율
-      const baseWaterByWeight = (this.state.hangingClipCount - 1) * 0.035;
-      this.state.waterInStrawRatio = THREE.MathUtils.clamp(
-        0.12 + baseWaterByWeight + effectivePressure * 0.48,
-        0.10,
-        0.75
-      );
-      this.state.airVolumeRatio = 1.0 - (this.state.waterInStrawRatio - 0.12) * 0.85;
+      // 2) 수심(h)에 따른 정수압(Hydrostatic pressure: rho * g * h) 반영
+      const submergenceDepth = Math.max(0, waterTopY - this.state.squidY);
+      const depthPressureAtm = submergenceDepth * 0.035;
 
-      // 클립 개수(1~6개)별 초기 부력 평형 높이(restY)와 최대 압력 시 도달 높이(pressedY)
-      // 수면(waterTopY)을 기준으로 빨대 윗부분(arch 반경 0.23)이 자연스럽게 위치하도록 설정
-      const clipProfiles = {
-        1: { restY: waterTopY - 0.02, pressedY: waterTopY - 0.35 }, // 1개: 물 위로 많이 솟아 있고, 눌러도 조금만 내려감
-        2: { restY: waterTopY - 0.10, pressedY: 1.88 },             // 2개: 물 위로 꽤 나와 있고, 끝까지 눌러도 중간까지만 내려감
-        3: { restY: waterTopY - 0.18, pressedY: 1.02 },             // 3개: 물 위로 살짝 나오고, 누르면 바닥까지 쑥 내려갔다 올라옴
-        4: { restY: waterTopY - 0.36, pressedY: 1.02 },             // 4개: 수면 바로 아래에 떠 있고, 조금만 눌러도 바닥으로 급강하
-        5: { restY: 1.38, pressedY: 1.02 },                         // 5개: 누르지 않아도 거의 바닥 근처까지 가라앉음
-        6: { restY: 1.02, pressedY: 1.02 }                          // 6개: 넣자마자 바닥에 완전히 가라앉아 움직이지 않음
-      };
-      const profile = clipProfiles[this.state.hangingClipCount] || clipProfiles[3];
-      const pressCurve = Math.min(1, effectivePressure * (this.state.hangingClipCount === 4 ? 1.45 : 1.1));
-      const targetY = THREE.MathUtils.lerp(profile.restY, profile.pressedY, pressCurve);
+      // 총 절대 압력 P (단위: atm, 대기압 P0 = 1.0)
+      const totalPressureAtm = 1.0 + squeezePressureAtm + depthPressureAtm;
 
-      // 물속 저항과 탄성을 포함한 자연스러운 가속도 이동
-      const forceY = (targetY - this.state.squidY) * 9.5;
-      this.state.squidVy = (this.state.squidVy + forceY * dt) * Math.pow(0.18, dt);
+      // 3) 보일의 법칙 (P * V_air = P0 * V_air0): 압력에 반비례하여 빨대 속 공기 부피 감소
+      const V_cavity = 2.65; // 빨대 내부 전체 공간 부피 (cm^3)
+      const V_air0 = 2.35;   // 대기압(1 atm)에서 초기 포집된 공기 부피 (cm^3)
+      const V_air = V_air0 / totalPressureAtm;
+
+      this.state.airVolumeRatio = V_air / V_air0;
+      this.state.waterInStrawRatio = THREE.MathUtils.clamp((V_cavity - V_air) / V_cavity, 0.11, 0.82);
+
+      // 4) 아르키메데스의 부력 vs 중력 (실제 그램·cm^3 물리량 기반)
+      // - 주름 빨대 + 테이프 질량: 0.45g, 부피: 0.50 cm^3
+      // - 클립 1개 질량: 0.48g, 철사 자체 부피: 0.06 cm^3 (고정 클립 1개 + 다리 클립 N개 = 총 N+1개)
+      const totalClips = this.state.hangingClipCount + 1;
+      const totalMassGrams = 0.45 + 0.48 * totalClips;
+      const maxDisplacedVolCm3 = 0.50 + 0.06 * totalClips + V_air;
+
+      // 수면 위로 빨대 윗부분(정수리 y = squidY + 0.25)이 노출되면 노출된 부피만큼 배수 부피 감소
+      const strawCrownY = this.state.squidY + 0.25;
+      const emergedHeight = Math.max(0, strawCrownY - waterTopY);
+      const emergedFraction = THREE.MathUtils.clamp(emergedHeight / 0.52, 0, 0.85);
+      const submergedVolCm3 = maxDisplacedVolCm3 * (1.0 - emergedFraction);
+
+      // 알짜 부력 (물 밀도 1.0 g/cm^3 기준: 부력 - 중력) 및 유체 항력(Drag)
+      const netBuoyancyForce = (submergedVolCm3 - totalMassGrams) * 6.8;
+      const linearDrag = -this.state.squidVy * 3.8;
+      const quadDrag = -this.state.squidVy * Math.abs(this.state.squidVy) * 1.6;
+
+      const accelY = (netBuoyancyForce + linearDrag + quadDrag) / (totalMassGrams * 0.45);
+      this.state.squidVy += accelY * dt;
       this.state.squidY += this.state.squidVy * dt;
 
-      // 오징어를 페트병 중심(x=1.25, z=0)에 배치 + 물결 흔들림
+      // 페트병 바닥(y = 1.02) 및 병목 상단 경계 충돌 처리
+      const bottomLimitY = 1.02;
+      if (this.state.squidY <= bottomLimitY) {
+        this.state.squidY = bottomLimitY;
+        if (this.state.squidVy < 0) this.state.squidVy = 0;
+      }
+      const topLimitY = waterTopY + 0.12;
+      if (this.state.squidY > topLimitY) {
+        this.state.squidY = topLimitY;
+        if (this.state.squidVy > 0) this.state.squidVy = 0;
+      }
+
+      // 바닥에 완전히 가라앉아 있을 때는 수면 물결 진동을 멈추고 바닥에 안착
+      const isRestingOnBottom = (this.state.squidY <= bottomLimitY + 0.01) && (netBuoyancyForce <= 0);
+      const waveBobbing = isRestingOnBottom ? 0 : Math.sin(elapsed * 2.4) * 0.012;
+
+      // 오징어를 페트병 중심(x=1.25, z=0)에 배치
       this.squidGroup.position.x = THREE.MathUtils.lerp(this.squidGroup.position.x, 1.25, dt * 7);
       this.squidGroup.position.z = THREE.MathUtils.lerp(this.squidGroup.position.z, 0, dt * 7);
-      this.squidGroup.position.y = this.state.squidY + Math.sin(elapsed * 2.6) * 0.025;
-      this.squidGroup.rotation.y = Math.sin(elapsed * 1.2) * 0.18;
+      this.squidGroup.position.y = this.state.squidY + waveBobbing;
+      this.squidGroup.rotation.y = Math.sin(elapsed * 1.1) * (isRestingOnBottom ? 0.03 : 0.15);
 
       // 빨대 내부에 차오르는 물 기둥과 줄어드는 공기 기둥 시각화
       this.internalWaterLeft.visible = true;
@@ -929,10 +953,19 @@ class SquidExperiment3D {
       this.state.airVolumeRatio = 1.0;
     }
 
-    // 오징어 다리 클립들의 살랑거리는 움직임
+    // 오징어 다리 클립들의 유체 저항(상승 시 모이고 하강 시 살짝 벌어짐) 및 잔잔한 흔들림
+    const count = this.hangingClipsGroup.children.length;
     this.hangingClipsGroup.children.forEach((clip, idx) => {
-      const speed = this.state.isInBottle ? 3.5 : 1.5;
-      const amp = this.state.isInBottle ? 0.06 + Math.abs(this.state.squidVy) * 0.08 : 0.02;
+      const centerOffset = idx - (count - 1) / 2;
+      const baseSpread = centerOffset * 0.08;
+      // 내려갈 때(squidVy < 0)는 물의 저항으로 다리가 살짝 바깥으로 벌어지고, 올라갈 때는 안으로 모아짐
+      const dragFlare = this.state.isInBottle
+        ? THREE.MathUtils.clamp(-this.state.squidVy * 0.06, -0.08, 0.12) * Math.sign(centerOffset || 1)
+        : 0;
+      clip.rotation.z = THREE.MathUtils.lerp(clip.rotation.z, baseSpread + dragFlare, dt * 8);
+
+      const speed = this.state.isInBottle ? 3.2 : 1.5;
+      const amp = this.state.isInBottle ? 0.02 + Math.min(0.1, Math.abs(this.state.squidVy) * 0.06) : 0.015;
       clip.rotation.x = Math.sin(elapsed * speed + idx) * amp;
     });
 
