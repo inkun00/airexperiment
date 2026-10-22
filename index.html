@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>오르락내리락 오징어 장난감 만들기 실험</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Three.js & OrbitControls via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <!-- 심플 상단 헤더 -->
+  <header class="top-header">
+    <div class="header-left">
+      <span class="badge-unit-open">과학 실험 시뮬레이션</span>
+      <span class="unit-title">오르락내리락 오징어 장난감 만들기</span>
+    </div>
+
+    <div class="header-right">
+      <button id="btnSoundToggle" class="icon-pill-btn" title="효과음 켜기/끄기">
+        🔊 효과음 켜짐
+      </button>
+      <button id="btnResetExperiment" class="cta-pill-btn">
+        ↺ 처음부터 다시 하기
+      </button>
+    </div>
+  </header>
+
+  <!-- 메인 3D 실험 워크스페이스 -->
+  <main class="main-container">
+    <section id="sec-lab" class="page-section active">
+      <div class="lab-workspace">
+
+        <!-- 좌측: 4단계 실험 조작 패널 -->
+        <aside class="lab-left-panel">
+          <div class="craft-stepper" role="tablist">
+            <button class="step-pill active" data-labstep="1">
+              <span class="step-num">1</span> 빨대 자르기·테이프
+            </button>
+            <button class="step-pill" data-labstep="2">
+              <span class="step-num">2</span> 클립 끼우기
+            </button>
+            <button class="step-pill" data-labstep="3">
+              <span class="step-num">3</span> 오징어·페트병 꾸미기
+            </button>
+            <button class="step-pill" data-labstep="4">
+              <span class="step-num">4</span> 페트병 눌러 실험하기
+            </button>
+          </div>
+
+          <!-- STEP 1 컨트롤 -->
+          <div id="stepPanel1" class="step-control-card active">
+            <div class="step-header">
+              <span class="step-badge">1단계</span>
+              <h3>주름 빨대 구부리고 자른 뒤 테이프 붙이기</h3>
+            </div>
+            <div class="ref-photo-box">
+              <img src="assets/step1_cut_tape.jpg" alt="1단계 주름 빨대 자르고 테이프 붙이기" />
+            </div>
+
+            <div class="action-buttons-stack">
+              <button id="btnBendStraw" class="lab-action-btn">
+                <span class="btn-step-circle">1-1</span>
+                <span>🔄 주름 빨대 구부리기</span>
+              </button>
+              <button id="btnCutStraw" class="lab-action-btn" disabled>
+                <span class="btn-step-circle">1-2</span>
+                <span>✂️ 짧은 쪽에 맞춰 가위로 자르기</span>
+              </button>
+              <button id="btnTapeStraw" class="lab-action-btn" disabled>
+                <span class="btn-step-circle">1-3</span>
+                <span>🩹 셀로판테이프 붙이기</span>
+              </button>
+            </div>
+
+            <div class="step-footer-nav">
+              <button id="btnToStep2" class="next-step-cta">
+                다음 단계 (클립 끼우기) ▶
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 2 컨트롤 -->
+          <div id="stepPanel2" class="step-control-card">
+            <div class="step-header">
+              <span class="step-badge">2단계</span>
+              <h3>클립 연결하고 빨대에 끼우기</h3>
+            </div>
+            <div class="ref-photo-box">
+              <img src="assets/step2_clip_chain.jpg" alt="2단계 클립 연결하고 빨대에 끼우기" />
+            </div>
+
+            <div class="action-buttons-stack">
+              <button id="btnHookClips" class="lab-action-btn">
+                <span class="btn-step-circle">2-1</span>
+                <span>📎 클립 한 개에 다리 클립 걸기</span>
+              </button>
+              <button id="btnInsertClipStraw" class="lab-action-btn">
+                <span class="btn-step-circle">2-2</span>
+                <span>⬆️ 빨대에 첫 번째 클립 끼우기</span>
+              </button>
+            </div>
+
+            <div class="clip-tuner-box">
+              <div class="tuner-label-row">
+                <span>📎 매달린 다리 클립 개수 조절</span>
+                <strong id="clipCountLabel">3개</strong>
+              </div>
+              <div class="clip-counter-controls">
+                <button id="btnClipMinus" class="counter-btn" title="클립 빼기">－</button>
+                <input type="range" id="sliderClipCount" min="1" max="6" value="3" />
+                <button id="btnClipPlus" class="counter-btn" title="클립 추가">＋</button>
+              </div>
+            </div>
+
+            <div class="step-footer-nav">
+              <button id="btnToStep3" class="next-step-cta">
+                다음 단계 (꾸미기) ▶
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 3 컨트롤 -->
+          <div id="stepPanel3" class="step-control-card">
+            <div class="step-header">
+              <span class="step-badge">3단계</span>
+              <h3>유성펜으로 오징어와 페트병 꾸미기</h3>
+            </div>
+
+            <div class="paint-target-tabs">
+              <button class="paint-tab active" data-target="straw">🦑 빨대(오징어) 꾸미기</button>
+              <button class="paint-tab" data-target="bottle">🌊 페트병 꾸미기</button>
+            </div>
+
+            <div class="marker-toolbar">
+              <div class="color-swatches">
+                <button class="color-swatch active" data-color="#111827" style="background:#111827" title="검정 유성펜"></button>
+                <button class="color-swatch" data-color="#dc2626" style="background:#dc2626" title="빨강 유성펜"></button>
+                <button class="color-swatch" data-color="#2563eb" style="background:#2563eb" title="파랑 유성펜"></button>
+                <button class="color-swatch" data-color="#16a34a" style="background:#16a34a" title="초록 유성펜"></button>
+                <button class="color-swatch" data-color="#9333ea" style="background:#9333ea" title="보라 유성펜"></button>
+                <button class="color-swatch" data-color="#f59e0b" style="background:#f59e0b" title="노랑 유성펜"></button>
+              </div>
+              <div class="stamp-Presets">
+                <button class="preset-btn" id="btnPresetCuteSquid">👀 기본 오징어</button>
+                <button class="preset-btn" id="btnPresetOceanWaves">🌊 기본 물결</button>
+                <button class="preset-btn danger-text" id="btnClearCanvas">지우기</button>
+              </div>
+            </div>
+
+            <div class="canvas-wrapper">
+              <canvas id="strawPaintCanvas" width="260" height="220" class="paint-canvas active"></canvas>
+              <canvas id="bottlePaintCanvas" width="260" height="220" class="paint-canvas"></canvas>
+            </div>
+
+            <div class="step-footer-nav">
+              <button id="btnToStep4" class="next-step-cta">
+                다음 단계 (페트병 실험) ▶
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 4 컨트롤 -->
+          <div id="stepPanel4" class="step-control-card">
+            <div class="step-header">
+              <span class="step-badge">4단계</span>
+              <h3>페트병에 넣고 세게 눌러 실험하기</h3>
+            </div>
+
+            <div class="action-buttons-stack">
+              <button id="btnPutSquidInBottle" class="lab-action-btn">
+                <span class="btn-step-circle">4-1</span>
+                <span>💧 물이 든 페트병에 오징어 넣기</span>
+              </button>
+              <button id="btnCloseBottleCap" class="lab-action-btn" disabled>
+                <span class="btn-step-circle">4-2</span>
+                <span>🔄 페트병 뚜껑 닫기 / 열기</span>
+              </button>
+            </div>
+
+            <div class="squeeze-control-panel" id="squeezeControlPanel">
+              <div class="squeeze-header">
+                <span>👐 <strong>페트병 누르기</strong></span>
+                <span id="squeezePercentBadge" class="pressure-badge">압력 0%</span>
+              </div>
+
+              <button id="btnHoldSqueeze" class="squeeze-big-btn" disabled>
+                ✊ 페트병 세게 누르기 (클릭 유지 / 스페이스바)
+              </button>
+
+              <div class="slider-row">
+                <label for="sliderSqueeze">누르는 힘 조절 슬라이더</label>
+                <input type="range" id="sliderSqueeze" min="0" max="100" value="0" disabled />
+              </div>
+
+              <div class="inline-clip-adjust">
+                <div class="inline-clip-btns">
+                  <span>📎 매달린 다리 클립 개수 조절</span>
+                  <strong id="step4ClipCount">3개</strong>
+                </div>
+                <div class="clip-counter-controls" style="margin-top: 0.45rem;">
+                  <button class="counter-btn" id="btnStep4ClipDec" title="클립 빼기">－</button>
+                  <input type="range" id="sliderStep4ClipCount" min="1" max="6" value="3" />
+                  <button class="counter-btn" id="btnStep4ClipInc" title="클립 추가">＋</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 중앙: Three.js 3D 실시간 시뮬레이션 뷰포트 -->
+        <div class="lab-center-stage">
+          <div id="threeCanvasContainer" class="three-viewport">
+            <div class="viewport-top-bar">
+              <div class="camera-view-btns">
+                <button class="cam-btn active" data-cam="front">정면 보기</button>
+                <button class="cam-btn" data-cam="closeup">확대 보기</button>
+                <button class="cam-btn" data-cam="top">위에서 보기</button>
+              </div>
+            </div>
+
+            <!-- 우측 하단 빨대 내부 기체·물 단면 확대 뷰 (오버레이) -->
+            <div class="xray-floating-box">
+              <div class="xray-floating-title">🔬 빨대 내부 단면 (기체 · 물)</div>
+              <canvas id="xrayCanvas" width="230" height="240"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <script src="scene3d.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

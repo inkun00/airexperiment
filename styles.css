@@ -1,0 +1,562 @@
+:root {
+  --card-bg: #ffffff;
+  --text-main: #1e293b;
+  --text-muted: #475569;
+  --border-soft: #e2e8f0;
+  --shadow-card: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 4px 10px -4px rgba(15, 23, 42, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  background-color: #0f172a;
+  color: var(--text-main);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 상단 헤더 */
+.top-header {
+  background: linear-gradient(90deg, #f59e0b 0%, #ea580c 100%);
+  color: #fff;
+  padding: 0.6rem 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.badge-unit-open {
+  background: #ffffff;
+  color: #9a3412;
+  font-weight: 900;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 8px;
+}
+
+.unit-title {
+  font-family: 'Jua', sans-serif;
+  font-size: 1.25rem;
+  letter-spacing: 0.01em;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-pill-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.cta-pill-btn {
+  background: #1e293b;
+  color: #fff;
+  border: none;
+  padding: 0.42rem 0.95rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* 메인 컨테이너 */
+.main-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.page-section {
+  flex: 1;
+  display: flex;
+  padding: 0.85rem 1rem;
+}
+
+.lab-workspace {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 1rem;
+  width: 100%;
+  height: 100%;
+}
+
+/* 좌측 컨트롤 패널 */
+.lab-left-panel {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 1rem;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+}
+
+.craft-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem;
+  background: #f1f5f9;
+  padding: 0.4rem;
+  border-radius: 14px;
+}
+
+.step-pill {
+  border: none;
+  background: transparent;
+  padding: 0.52rem 0.6rem;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #475569;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: 0.18s;
+}
+
+.step-pill.active {
+  background: #ffffff;
+  color: #4f46e5;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #cbd5e1;
+  color: #1e293b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.step-pill.active .step-num {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.step-control-card {
+  display: none;
+  flex-direction: column;
+  gap: 0.8rem;
+  flex: 1;
+}
+
+.step-control-card.active {
+  display: flex;
+}
+
+.step-badge {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 800;
+  font-size: 0.76rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+}
+
+.step-header h3 {
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+
+.ref-photo-box {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ref-photo-box img {
+  width: 100%;
+  height: 155px;
+  object-fit: cover;
+  display: block;
+}
+
+.action-buttons-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.lab-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.78rem 0.9rem;
+  border-radius: 12px;
+  border: 2px solid #c7d2fe;
+  background: #eef2ff;
+  color: #1e1b4b;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s;
+}
+
+.lab-action-btn:hover:not(:disabled) {
+  background: #e0e7ff;
+  border-color: #6366f1;
+  transform: translateX(2px);
+}
+
+.lab-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.lab-action-btn.done {
+  background: #dcfce7;
+  border-color: #22c55e;
+  color: #14532d;
+}
+
+.btn-step-circle {
+  background: #4f46e5;
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.lab-action-btn.done .btn-step-circle {
+  background: #16a34a;
+}
+
+/* 클립 튜너 */
+.clip-tuner-box {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 0.85rem;
+}
+
+.tuner-label-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  margin-bottom: 0.55rem;
+}
+
+.clip-counter-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clip-counter-controls input[type="range"] {
+  flex: 1;
+  accent-color: #d97706;
+}
+
+.counter-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #f59e0b;
+  background: #fff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+/* STEP 3 유성펜 캔버스 */
+.paint-target-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.paint-tab {
+  padding: 0.5rem;
+  border-radius: 10px;
+  border: 2px solid #cbd5e1;
+  background: #f8fafc;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.paint-tab.active {
+  border-color: #6d28d9;
+  background: #f3e8ff;
+  color: #5b21b6;
+}
+
+.marker-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.color-swatches {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: center;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.color-swatch.active {
+  transform: scale(1.18);
+  border-color: #0f172a;
+  box-shadow: 0 0 0 2px #fff inset;
+}
+
+.stamp-Presets {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.preset-btn {
+  flex: 1;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 0.38rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.danger-text {
+  color: #dc2626;
+  flex: 0 0 auto;
+}
+
+.canvas-wrapper {
+  background: #f8fafc;
+  border: 2px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.paint-canvas {
+  display: none;
+  background: #ffffff;
+  border-radius: 8px;
+  cursor: crosshair;
+}
+
+.paint-canvas.active {
+  display: block;
+}
+
+/* STEP 4 페트병 누르기 패널 */
+.squeeze-control-panel {
+  background: #eff6ff;
+  border: 2px solid #93c5fd;
+  border-radius: 14px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.squeeze-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.pressure-badge {
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.squeeze-big-btn {
+  background: linear-gradient(135deg, #2563eb 0%, #0284c7 100%);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  padding: 1rem 0.8rem;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 6px 15px rgba(37, 99, 235, 0.35);
+  transition: transform 0.1s;
+  user-select: none;
+}
+
+.squeeze-big-btn:active:not(:disabled),
+.squeeze-big-btn.squeezing {
+  transform: scale(0.96);
+  background: linear-gradient(135deg, #1e40af 0%, #0369a1 100%);
+}
+
+.squeeze-big-btn:disabled {
+  background: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.slider-row input[type="range"] {
+  width: 100%;
+  accent-color: #2563eb;
+}
+
+.inline-clip-adjust {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 0.75rem;
+  border: 1px solid #bfdbfe;
+}
+
+.inline-clip-btns {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.86rem;
+}
+
+.step-footer-nav {
+  margin-top: auto;
+}
+
+.next-step-cta {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 12px;
+  border: none;
+  background: #f59e0b;
+  color: #fff;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.next-step-cta:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* 중앙 3D 뷰포트 */
+.lab-center-stage {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 2px solid #334155;
+  background: radial-gradient(circle at 50% 40%, #1e293b 0%, #0f172a 68%, #090d16 100%);
+}
+
+.three-viewport {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.viewport-top-bar {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  z-index: 10;
+}
+
+.camera-view-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cam-btn {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(6px);
+  border: 1px solid #475569;
+  color: #f8fafc;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cam-btn.active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #6366f1;
+}
+
+/* 우측 하단 빨대 단면 플로팅 뷰 */
+.xray-floating-box {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  padding: 0.65rem;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.xray-floating-title {
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 0.35rem;
+}
